@@ -15,6 +15,7 @@
 #include "journal.h"
 #include "journal_reclaim.h"
 #include "keylist.h"
+#include "subvolume.h"
 #include "replicas.h"
 
 #include <linux/prefetch.h>
@@ -225,6 +226,8 @@ static inline void btree_insert_entry_checks(struct btree_trans *trans,
 	BUG_ON(bpos_cmp(i->k->k.p, i->iter->real_pos));
 	BUG_ON(i->level		!= i->iter->level);
 	BUG_ON(i->btree_id	!= i->iter->btree_id);
+	EBUG_ON(i->k->k.p.snapshot &&
+		bch2_snapshot_parent(trans->c, i->k->k.p.snapshot));
 }
 
 static noinline int
