@@ -1251,6 +1251,10 @@ int bch2_mark_update(struct btree_trans *trans, struct btree_iter *iter,
 		old = deleted;
 	}
 
+	/* Not actually overwriting? */
+	if (new->k.p.snapshot != old.k->p.snapshot)
+		old = deleted;
+
 	if (old.k->type == new->k.type &&
 	    ((1U << old.k->type) & BTREE_TRIGGER_WANTS_OLD_AND_NEW)) {
 		ret   = bch2_mark_key_locked(c, old, bkey_i_to_s_c(new),
@@ -1872,6 +1876,10 @@ int bch2_trans_mark_update(struct btree_trans *trans,
 		 */
 		old = deleted;
 	}
+
+	/* Not actually overwriting? */
+	if (new->k.p.snapshot != old.k->p.snapshot)
+		old = deleted;
 
 	if (old.k->type == new->k.type &&
 	    ((1U << old.k->type) & BTREE_TRIGGER_WANTS_OLD_AND_NEW)) {
