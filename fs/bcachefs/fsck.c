@@ -740,6 +740,7 @@ static int check_inode(struct btree_trans *trans,
 		 * XXX: need to truncate partial blocks too here - or ideally
 		 * just switch units to bytes and that issue goes away
 		 */
+		BUG();
 		ret = bch2_btree_delete_range_trans(trans, BTREE_ID_extents,
 				POS(u.bi_inum, round_up(u.bi_size, block_bytes(c)) >> 9),
 				POS(u.bi_inum, U64_MAX),
@@ -815,6 +816,10 @@ static int check_inodes(struct bch_fs *c, bool full)
 			   BTREE_ITER_INTENT|
 			   BTREE_ITER_PREFETCH|
 			   BTREE_ITER_ALL_SNAPSHOTS, k, ret) {
+		/* if snapshot id isn't a leaf node, skip it: */
+		if (bch2_snapshot_parent(c, k.k->p.snapshot))
+			continue;
+
 		if (k.k->type != KEY_TYPE_inode)
 			continue;
 
