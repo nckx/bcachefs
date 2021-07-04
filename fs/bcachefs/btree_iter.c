@@ -1819,8 +1819,10 @@ struct bkey_s_c bch2_btree_iter_next(struct btree_iter *iter)
  */
 struct bkey_s_c bch2_btree_iter_peek_prev(struct btree_iter *iter)
 {
+	struct bpos search_key = iter->pos;
 	struct btree_iter_level *l = &iter->l[0];
-	struct bkey_s_c k;
+	struct btree_iter *saved_pos = NULL;
+	struct bkey_s_c k, saved_k = bkey_s_c_null;
 	int ret;
 
 	EBUG_ON(btree_iter_type(iter) != BTREE_ITER_KEYS);
@@ -1828,7 +1830,10 @@ struct bkey_s_c bch2_btree_iter_peek_prev(struct btree_iter *iter)
 	bch2_btree_iter_verify(iter);
 	bch2_btree_iter_verify_entry_exit(iter);
 
-	btree_iter_set_search_pos(iter, iter->pos);
+	if (iter->flags & BTREE_ITER_FILTER_SNAPSHOTS)
+		search_key.snapshot = U32_MAX;
+start:
+	btree_iter_set_search_pos(iter, search_key);
 
 	while (1) {
 		ret = btree_iter_traverse(iter);
@@ -1839,13 +1844,36 @@ struct bkey_s_c bch2_btree_iter_peek_prev(struct btree_iter *iter)
 
 		k = btree_iter_level_peek(iter, l);
 		if (!k.k ||
-		    ((iter->flags & BTREE_ITER_IS_EXTENTS)
-		     ? bpos_cmp(bkey_start_pos(k.k), iter->pos) >= 0
-		     : bpos_cmp(k.k->p, iter->pos) > 0))
+		    ((iter->flags & BTREE_ITER_ALL_SNAPSHOTS)	? bpos_cmp(k.k->p, iter->pos) > 0 :
+		     (iter->flags & BTREE_ITER_IS_EXTENTS)	? bpos_cmp(bkey_start_pos(k.k), iter->pos) >= 0 :
+								  bkey_cmp(k.k->p, iter->pos) > 0))
 			k = btree_iter_level_prev(iter, l);
 
-		if (likely(k.k))
+		if (likely(k.k)) {
+			if (iter->flags & BTREE_ITER_FILTER_SNAPSHOTS) {
+				if (k.k->p.snapshot == iter->snapshot)
+					break;
+
+				if (saved_k.k && bkey_cmp(k.k->p, saved_k.k->p)) {
+					k = saved_k;
+					btree_iter_copy(iter, saved_pos);
+					break;
+				}
+
+				if (bch2_snapshot_is_ancestor(iter->trans->c,
+							      iter->snapshot,
+							      k.k->p.snapshot)) {
+					saved_pos = btree_iter_child_alloc(iter, _THIS_IP_);
+					btree_iter_copy(saved_pos, iter);
+					saved_k = k;
+				}
+
+				search_key = bpos_predecessor(k.k->p);
+				goto start;
+			}
+
 			break;
+		}
 
 		if (!btree_iter_set_pos_to_prev_leaf(iter)) {
 			k = bkey_s_c_null;
@@ -1858,6 +1886,9 @@ struct bkey_s_c bch2_btree_iter_peek_prev(struct btree_iter *iter)
 	/* Extents can straddle iter->pos: */
 	if (bkey_cmp(k.k->p, iter->pos) < 0)
 		iter->pos = k.k->p;
+
+	if (iter->flags & BTREE_ITER_FILTER_SNAPSHOTS)
+		iter->pos.snapshot = iter->snapshot;
 out:
 	bch2_btree_iter_verify_entry_exit(iter);
 	bch2_btree_iter_verify(iter);
